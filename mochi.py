@@ -62,7 +62,7 @@ class Config:
     VOICE_PROBABILITY = 0.8  # 触发语音的概率
     AUDIO_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio_cache")
     # NASA 官方给极客提供的免费 DEMO KEY（每天有少量限制，正式用可以去 api.nasa.gov 免费秒申一个专属的）
-    NASA_API_KEY = "DEMO_KEY" 
+    NASA_API_KEY = "DEMO_KEY"
     NASA_URL = "https://api.nasa.gov/planetary/apod"
 def clean_bot_text(text: str) -> str:
     """
@@ -70,7 +70,7 @@ def clean_bot_text(text: str) -> str:
     """
     if not text:
         return ""
-        
+
     # 1. 物理清洗：干掉括号及动作描写
     cleaned = re.sub(r'^[\(（].*?[\)）]', '', text).strip()
 
@@ -87,9 +87,9 @@ def clean_bot_text(text: str) -> str:
         r'(?i)\bwc\b': '卧槽',
         r'(?i)\bnb\b': '牛逼',
         r'(?i)\bgg\b': '寄了',  # 把GG替换成更接地气的“寄了”
-        
+
         # 针对 Dota 常见字母强制拆分，防止引擎连读成奇怪的单词
-        r'(?i)\bkda\b': 'K D A', 
+        r'(?i)\bkda\b': 'K D A',
         r'(?i)\bgpm\b': 'G P M',
         r'(?i)\bbkb\b': 'B K B',
         r'(?i)\bdps\b': 'D P S',
@@ -100,45 +100,45 @@ def clean_bot_text(text: str) -> str:
     # 3. 语气词与标点符号强制纠偏（核心灵魂区）
     voice_tweaks = {
         # 不屑/冷漠系列
-        "啧啧": "切——，切——，", 
-        "啧": "切——，",          
+        "啧啧": "切——，切——，",
+        "啧": "切——，",
         "呵呵": "呵，",
         "无语": "真是无语，",
         "草": "靠",
         "唉": "哎——，",          # 强迫拉长音的叹气
         "哎": "哎——，",
-        
+
         # 惊讶/嘲讽系列
-        "啊？": "啊？？",         
+        "啊？": "啊？？",
         "啥？": "啥？？",
         "不是吧": "不是吧？？",
         "怎么说": "怎么说——，",
-        
+
         # 情绪拉长音 (破折号是微软 TTS 的神器)
         "尽力了": "尽——力——了，",
         "拉跨": "拉——跨——，",
         "菜狗": "菜——狗，",
         "绝了": "绝——了，",
         "我去": "我——去——，",
-        
+
         # 笑声修正 (防止连续读“哈哈哈”像机器枪，用逗号强行断句制造冷笑感)
         "哈哈哈": "哈，哈，哈，",
         "哈哈": "哈，哈，",
-        
+
         # 停顿与呼吸感
-        "...": "，，，",          
+        "...": "，，，",
         "。。。": "，，，",
         "~": "——",               # 微软有时不读波浪号，换成破折号拉长音
     }
-    
+
     for old_word, new_word in voice_tweaks.items():
         cleaned = cleaned.replace(old_word, new_word)
-        
+
     # 4. 终极标点强化：强行拉高所有问句的声调
     # 负向先行断言，把所有单独的问号替换成双问号，逼迫晓晓声调上扬
     cleaned = re.sub(r'(?<!\?)\?(?!\?)', '？？', cleaned)
     cleaned = re.sub(r'(?<!？)？(?!？)', '？？', cleaned)
-        
+
     return cleaned.strip()
 
 # ====================== 记忆模型定义 (Pydantic Schema) ======================
@@ -607,6 +607,7 @@ class MashuBot:
         self.last_msg_time = time.time()
         self.last_match_cache = {}
         self.animal_cam = AnimalLiveCamera()
+        self.annoyance_level = {}
 
         # 启动后台线程
         threading.Thread(target=self._auto_speak_loop, daemon=True).start()
@@ -628,13 +629,20 @@ class MashuBot:
             except Exception as e:
                 print(f"⚠️ 后台整合工作线程异常: {e}")
 
-    def _get_mood_desc(self):
+    def _get_mood_desc(self, annoyance=0):
         hour = datetime.now().hour
+        mood = "心情还不错，比较愿意和群友闲聊。"
         if 9 <= hour <= 18:
-            return "现在是上班时间，你有点疲惫和敷衍，想摸鱼。"
-        if 23 <= hour or hour <= 4:
-            return "深夜了，你变得感性且慵懒，说话比较随性。"
-        return "心情还不错，比较愿意和群友闲聊。"
+            mood = "现在是上班时间，你有点疲惫和敷衍，想摸鱼。"
+        elif 23 <= hour or hour <= 4:
+            mood = "深夜了，你变得感性且慵懒，说话比较随性。"
+
+        if annoyance > 3:
+            mood += " 但是，你现在极其烦躁，因为群友一直在疯狂刷屏艾特你，你的耐心已经耗尽，语气要变得极其暴躁、充满攻击性，甚至直接开骂。"
+        elif annoyance > 1:
+            mood += " 你现在有点心烦，群友说话太多了，你的语气变得敷衍、不耐烦，带着明显的阴阳怪气。"
+
+        return mood
 
     # ---------------- 意图识别与数据提取 ----------------
     def _classify_intent(self, text):
@@ -650,8 +658,8 @@ class MashuBot:
         7. "看看"后面跟动物、生物、自然景观、野生场景类词汇（如鸟、猫、狗、老鹰、鱼、大草原、沙漠、森林、野生动物等），判定为 animal_camera。
         8. "看看"后面跟地名/城市/国家，判定为 camera。
         9. "看看"后面跟人名或玩家ID，判定为对应dota查询意图。
-        
-        
+
+
 
         意图选项：
         - camera           （看摄像头/上下班打卡/出差）
@@ -684,7 +692,7 @@ class MashuBot:
                 return result if result in valid else "chat"
             except:
                 return "chat"
-        
+
     def _extract_hero_name(self, text):
         prompt = f"从这句话里提取Dota2英雄名，只回复英雄的英文名或中文名，没有就回复none：\n消息：{text}"
         try:
@@ -717,14 +725,19 @@ class MashuBot:
                 recognized.append(f"【关于{info['call']}】这是你的熟人，外号有{', '.join(info['roasts'])}。印象：\n{profile}")
         return "\n".join(recognized) if recognized else "当前对话未提及特定熟人。"
 
-    def _build_prompt(self, user_id, user_text):
-        mood = self._get_mood_desc()
+    def _build_prompt(self, user_id, user_text, annoyance=0):
+        mood = self._get_mood_desc(annoyance)
         member_knowledge = self._recognize_members(user_text)
         recent_bot = "、".join(self.memory_engine.bot_recent_says[-5:])
 
         uid_int = int(user_id) if str(user_id).isdigit() else user_id
         speaker_info = Config.MEMBERS.get(uid_int)
         speaker_name = speaker_info["call"] if speaker_info else "某群友"
+
+        # 挂载群聊上下文
+        group_context = "暂无"
+        if self.recent_messages:
+            group_context = "\n".join([f"[{m['name']}] 说: {m['text']}" for m in self.recent_messages[-10:]])
 
         # 挂载长线记忆
         long_term_memory = self.memory_engine.get_user_context(user_id)
@@ -735,6 +748,8 @@ class MashuBot:
 现在正在和你说话的人是：{speaker_name}。
 无论他说什么，你都要牢记这是 {speaker_name} 发给你的消息。
 {memory_block}
+【近期群聊上下文】
+{group_context}
 【麻薯当前状态】
 {mood}
 【麻薯的社交圈（关键认知）】
@@ -746,7 +761,8 @@ class MashuBot:
 1. 清楚认识当前对话对象是 {speaker_name}，如果他提到了别人（比如社交圈里的外号），那是他在吐槽别人，绝对不要把他误认成别人。
 2. 看到熟人外号要能立刻反应过来是谁。
 3. 像真人一样接话，不要表现得像个百科全书。
-4. 严禁说"不记得、没印象"如果是配置里有的熟人。"""
+4. 严禁说"不记得、没印象"如果是配置里有的熟人。
+5. 请参考【近期群聊上下文】，了解大家正在聊什么，不要像失忆一样接不上话。"""
 
     # ---------------- 核心业务处理路由 ----------------
     def handle_webhook(self, data):
@@ -792,7 +808,7 @@ class MashuBot:
             # B. 核心业务流：被@ 或 提到名字
             if at_me or "麻薯" in msg_text:
                             intent = self._classify_intent(msg_text)
-                            
+
                             # ── 1. 正常的城市/打卡摄像头 ──
                             if intent == "camera":
                                 if "出差" in msg_text:
@@ -806,7 +822,7 @@ class MashuBot:
                                     self._handle_live_camera(group_id, scene_type="off_work")
                                 else:
                                     self._handle_live_camera(group_id, scene_type="work")
-                                    
+
                             # ── 2. 【新增】野生动物专属监控通道 ──
                             elif intent == "animal_camera":
                                 threading.Thread(target=self._animal_worker, args=(group_id, msg_text), daemon=True).start()
@@ -864,7 +880,7 @@ class MashuBot:
             {"role": "system", "content": self._build_prompt(user_id, text) + "\n你现在需要播报这段Dota2单场战绩，用玩家口吻犀利点评，禁止复述纯数字，多吐槽MVP或SVP。"},
             {"role": "user", "content": f"战绩数据：{json.dumps(match_data, ensure_ascii=False)}"}
         ]
-        
+
         reply = self._call_llm(messages, model=Config.MODEL_QUICK)
         if reply:
             # 同样享受我们刚刚搭建好的 100% 语音/文本分流表现层！
@@ -894,7 +910,7 @@ class MashuBot:
             {"role": "system", "content": self._build_prompt(user_id, text) + "\n你现在需要点评对方最近10场比赛的综合表现（胜率、常用英雄）。如果胜率很惨，直接开喷；表现好就傲娇地夸一句。"},
             {"role": "user", "content": f"近10场聚合数据：{json.dumps(recent_data, ensure_ascii=False)}"}
         ]
-        
+
         reply = self._call_llm(messages, model=Config.MODEL_QUICK)
         if reply:
             if random.random() < Config.VOICE_PROBABILITY:
@@ -962,8 +978,22 @@ class MashuBot:
     # ---------------- 底层接口封装 ----------------
     def _call_llm(self, messages, model=Config.MODEL_QUICK):
         try:
+            # 注入 CoT 提示词
+            cot_prompt = {"role": "system", "content": "IMPORTANT: You MUST first think about your response internally. Wrap your internal thoughts entirely inside <think>...</think> XML tags. After the closing </think> tag, provide your actual spoken reply to the user. Do not include any thoughts outside the tags."}
+            messages = [cot_prompt] + messages
+
             resp = self.client.chat.completions.create(model=model, messages=messages, temperature=0.8)
-            content = resp.choices[0].message.content.strip()
+            raw_content = resp.choices[0].message.content.strip()
+
+            # 解析并剔除 <think> 块
+            content = raw_content
+            think_match = re.search(r'<think>([\s\S]*?)</think>', raw_content)
+            if think_match:
+                print(f"💭 [内部思考]: {think_match.group(1).strip()}")
+                content = raw_content.replace(think_match.group(0), "").strip()
+            else:
+                print(f"⚠️ [未检测到思考块]: 模型直接输出了内容。")
+
             # 物理层面彻底屏蔽星号和括号动作描写
             content = re.sub(r'[（\(].*?[）\)]', '', content)
             content = re.sub(r'\*.*?\*', '', content)
@@ -999,7 +1029,7 @@ class MashuBot:
         try:
             if not os.path.exists(Config.AUDIO_CACHE_DIR):
                 os.makedirs(Config.AUDIO_CACHE_DIR)
-                
+
             audio_filename = f"tts_{uuid.uuid4().hex}.mp3"
             audio_path = os.path.join(Config.AUDIO_CACHE_DIR, audio_filename)
 
@@ -1025,7 +1055,7 @@ class MashuBot:
                 )
         except Exception as e:
             print(f"❌ [VoiceError] 语音合成投递异常: {e}")
-    
+
 
     # ---------------- 记忆与任务循环 ----------------
     def _update_profile(self, call_name, q, a):
@@ -1054,26 +1084,26 @@ class MashuBot:
             print("⏰ 麻薯主动冲浪带节奏时钟（宇宙+社畜打卡合体版）已启动...")
             import random
             from datetime import datetime
-            
+
             # 状态锁：确保每天每个场景只会触发一次，绝对不刷屏
             last_checked_day = None
             has_sent_morning = False
             has_sent_evening = False
             has_sent_trip = False
             has_sent_nasa_today = False
-            
+
             # ⚠️ 记得把 721815671 改成你们群的真实 QQ 群号！
             TARGET_GROUP = 721815671
-            
+
             while True:
                 # 每隔 15 分钟（900秒）在后台探一次头
-                time.sleep(900) 
-                
+                time.sleep(900)
+
                 now = datetime.now()
                 current_hour = now.hour
                 current_day = now.date()
                 current_weekday = now.weekday() # 0-4 是工作日，5-6 是周末
-                
+
                 # 日期变了，自动重置今天所有主动技能的状态
                 if current_day != last_checked_day:
                     last_checked_day = current_day
@@ -1081,7 +1111,7 @@ class MashuBot:
                     has_sent_evening = False
                     has_sent_nasa_today = False
                     # 每天下午有 5% 的低概率被阎老板临时安排跨国出差
-                    has_sent_trip = random.random() > 0.05 
+                    has_sent_trip = random.random() > 0.05
 
                 # ================= [ 场景 1：工作日早上上班打卡 ] =================
                 if current_weekday < 5 and current_hour == 8 and not has_sent_morning:
@@ -1136,43 +1166,52 @@ class MashuBot:
 
     def _do_at_reply(self, user_id, group_id, call_name, text):
         now = time.time()
-        is_annoying = (now - self.last_at_time.get(user_id, 0)) < 8
+
+        last_time = self.last_at_time.get(user_id, 0)
+        time_diff = now - last_time
+
+        current_annoyance = self.annoyance_level.get(user_id, 0)
+        decay = int(time_diff / 30)
+        current_annoyance = max(0, current_annoyance - decay)
+
+        if time_diff < 8:
+            current_annoyance += 1
+
+        self.annoyance_level[user_id] = current_annoyance
         self.last_at_time[user_id] = now
 
         messages = [
-            {"role": "system", "content": self._build_prompt(user_id, text)},
+            {"role": "system", "content": self._build_prompt(user_id, text, annoyance=current_annoyance)},
             # 明确打上说话人标签，杜绝误归因
             {"role": "user", "content": f"说话人 [{call_name}]: {text}"}
         ]
         print(f"DEBUG FULL PROMPT:\n{messages[0]['content']}")  # 加这行
 
-        if is_annoying:
-            messages.append({"role": "system", "content": "这人一直在刷屏问你，你有点烦了，回短一点。"})
 # 执行研究文章要求的 10% Pro 模型调用
         reply = self._call_llm(messages, model=Config.MODEL_SMART if random.random() < 0.10 else Config.MODEL_QUICK)
         if reply:
             # === 新增：语音与文本分流逻辑 ===
             # (注：如果你现在想把所有闲聊都变语音测试，记得把 len(reply) < 50 and 这个字数限制删掉)
             if len(reply) < 50 and random.random() < Config.VOICE_PROBABILITY:
-                
+
                 # [核心修改 1]：命中语音后，临时生成专用的发音剧本
-                tts_script = clean_bot_text(reply) 
-                
+                tts_script = clean_bot_text(reply)
+
                 # [核心修改 2]：打印出来对比一下，方便你调试
                 print(f"🔊 原生回复: {reply} | 语音剧本: {tts_script}")
-                
+
                 # 手动记录最近发言到内存（保持记忆连贯性），但不发文本
                 # 注意：这里存入记忆的依然是原本的 reply，没有被污染
                 self.memory_engine.bot_recent_says.append(reply[:30])
                 if len(self.memory_engine.bot_recent_says) > 10:
                     self.memory_engine.bot_recent_says.pop(0)
                 self.memory_engine.save_data_safe()
-                
+
                 # [核心修改 3]：在后台线程发语音时，传进去的是 tts_script！
                 threading.Thread(target=self._voice_worker, args=(group_id, tts_script), daemon=True).start()
             else:
                 self._send_and_record(group_id, reply)
-            
+
             # 无缝衔接：开启线程调用你自己的 _update_profile
             threading.Thread(target=self._update_profile, args=(call_name, text, reply)).start()
 
@@ -1194,6 +1233,19 @@ class MashuBot:
                     self._send_and_record(group_id, part.strip())
                     time.sleep(0.5)
 
+    def _handle_speak_japanese(self, group_id, text):
+        """【群友流·日语营业】根据语境生成日语语音"""
+        self._send(group_id, "等下，我找找语感...")
+
+        messages = [
+            {"role": "system", "content": "你叫麻薯，一个23岁在日打工的重度网瘾少女。现在有人让你说句日语，你要根据群友的内容，用口语化、随性、傲娇的语气说一句简短的日语。只返回日语原文，不要罗马音，不要翻译，不要标点符号，不要括号动作描写。"},
+            {"role": "user", "content": f"群友的话：{text}"}
+        ]
+
+        reply = self._call_llm(messages, model=Config.MODEL_QUICK)
+        if reply:
+            threading.Thread(target=self._voice_worker, args=(group_id, reply, "ja-JP-NanamiNeural", "+0%", "+0Hz"), daemon=True).start()
+
     def _handle_nasa_space(self, group_id, text, is_auto=False):
             """【群友流·宇宙大新闻】NASA天文图真人化分享"""
             import requests
@@ -1210,7 +1262,7 @@ class MashuBot:
             date_param = ""
             # 允许群友查历史（比如：@麻薯 看看 2024-10-01 的宇宙）
             date_match = re.search(r'\d{4}-\d{2}-\d{2}', text) if text else None
-            
+
             if date_match:
                 date_param = f"&date={date_match.group(0)}"
             else:
@@ -1228,7 +1280,7 @@ class MashuBot:
                 if res.status_code != 200:
                     if not is_auto: self._send_and_record(group_id, "草，NASA这破网站又挂了，根本刷不出来")
                     return
-                
+
                 data = res.json()
                 img_url = data.get("hdurl") or data.get("url")
                 explanation_en = data.get("explanation", "")
@@ -1240,7 +1292,7 @@ class MashuBot:
                 # 4. 【核心重构】群友化洗脑 Prompt
                 # 区分被动回答和主动安利的开场白
                 context_style = "你在群里看到有人问你今天NASA发了啥，你顺手甩给他。" if not is_auto else "你在刷推特刚好刷到一张震撼的太空图，你忍不住主动扔到QQ群里跟大伙分享。"
-                
+
                 messages = [
                     {"role": "system", "content": f"""
     你叫麻薯，一个23岁在日打工的重度网瘾少女。现在你正在QQ群里跟老朋友们水群。
@@ -1255,7 +1307,7 @@ class MashuBot:
     """},
                     {"role": "user", "content": f"当前场景: {context_style}\n太空图英文名: {title_en}\n英文背景描述: {explanation_en}"}
                 ]
-                
+
                 reply = self._call_llm(messages, model=Config.MODEL_QUICK)
 
                 # 5. 发送高清图与语音
@@ -1375,7 +1427,7 @@ class MashuBot:
             import time
             import threading
             import requests
-            
+
             WINDY_API_KEY = "WmOKz8XYr3aWe2cM9CrbD6oFkfn6tYVy"
 
             # ── 1. 根据场景确定城市名和 prompt ────────────────────────────
@@ -1439,7 +1491,7 @@ class MashuBot:
                 api_url = "https://api.windy.com/webcams/api/v3/webcams"
                 headers = {"x-windy-api-key": WINDY_API_KEY}
                 all_active_ids = []
-                
+
                 # 【新增兼容】如果是国家级扫描，抛弃经纬度，直接用 countries 参数一把梭
                 if c_code:
                     params = {"countries": c_code, "limit": 50}
@@ -1485,7 +1537,7 @@ class MashuBot:
             active_ids = fetch_active_ids(lat, lon, 25, country_code)
             if active_ids is None:
                 return
-            
+
             # 只有在非国家级扫描且 25km 没找到时，才扩大到 80km
             if not active_ids and not country_code:
                 print(f"⚠️ [{target_city}] 25km 内无摄像头，扩大到 80km 重试...")
